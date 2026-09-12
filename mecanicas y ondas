@@ -1,0 +1,72 @@
+// Medición de aceleración en MRUA con 3 sensores IR de barrera
+// v1 = d12 / (t2 - t1)      -> velocidad media en el primer tramo
+// v2 = d23 / (t3 - t2)      -> velocidad media en el segundo tramo
+// a  = (v2 - v1) / (tm2 - tm1)  -> usando tiempos medios de cada tramo
+
+const byte pinSensor1 = 2; // interrupción
+const byte pinSensor2 = 3; // interrupción
+const byte pinSensor3 = 4; // sondeo (digitalRead)
+
+// Distancias reales entre sensores (AJUSTAR a tu montaje)
+const float d12 = 0.30; // metros
+const float d23 = 0.30; // metros
+
+volatile unsigned long t1 = 0, t2 = 0;
+volatile bool marco1 = false, marco2 = false;
+unsigned long t3 = 0;
+bool marco3 = false;
+
+void ISR_sensor1() {
+  if (!marco1) { t1 = micros(); marco1 = true; }
+}
+
+void ISR_sensor2() {
+  if (marco1 && !marco2) { t2 = micros(); marco2 = true; }
+}
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(pinSensor1, INPUT);
+  pinMode(pinSensor2, INPUT);
+  pinMode(pinSensor3, INPUT);
+  attachInterrupt(digitalPinToInterrupt(pinSensor1), ISR_sensor1, FALLING);
+  attachInterrupt(digitalPinToInterrupt(pinSensor2), ISR_sensor2, FALLING);
+  Serial.println("Sistema listo. Suelta el objeto desde la parte alta del riel.");
+}
+
+void loop() {
+  // Sondeo del tercer sensor, solo válido después de pasar por el 2do
+  if (marco2 && !marco3) {
+    if (digitalRead(pinSensor3) == LOW) { // ajustar según polaridad del módulo (LOW = objeto detectado en la mayoría de FC-51)
+      t3 = micros();
+      marco3 = true;
+    }
+  }
+
+  if (marco1 && marco2 && marco3) {
+    float t12 = (t2 - t1) / 1000000.0; // s
+    float t23 = (t3 - t2) / 1000000.0; // s
+
+    float v1 = d12 / t12; // velocidad media tramo 1
+    float v2 = d23 / t23; // velocidad media tramo 2
+
+    // tiempos medios de cada tramo, referidos al instante t1 = 0
+    float tm1 = t12 / 2.0;
+    float tm2 = t12 + (t23 / 2.0);
+
+    float aceleracion = (v2 - v1) / (tm2 - tm1);
+
+    Serial.println("---------------------------------------");
+    Serial.print("t12: "); Serial.print(t12, 4); Serial.println(" s");
+    Serial.print("t23: "); Serial.print(t23, 4); Serial.println(" s");
+    Serial.print("v1 (tramo 1): "); Serial.print(v1, 3); Serial.println(" m/s");
+    Serial.print("v2 (tramo 2): "); Serial.print(v2, 3); Serial.println(" m/s");
+    Serial.print("Aceleracion: "); Serial.print(aceleracion, 3); Serial.println(" m/s^2");
+    Serial.println("---------------------------------------");
+
+    delay(2000);
+    marco1 = false;
+    marco2 = false;
+    marco3 = false;
+  }
+}
